@@ -38,7 +38,7 @@ class Player(Ship):
         self.max_health = health
         self.mask = pygame.mask.from_surface(self.ship_img)
         self.creation_cooldown_counter = 0
-        self.max_amount_bullets = 3
+        self.max_amount_bullets = 4
         self.bullets = []
         self.fired_bullets = []
         self.bullet_cooldown_counter = 0

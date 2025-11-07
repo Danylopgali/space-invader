@@ -10,6 +10,7 @@ from core.drawing import Drawing
 from entities.ship import Ship
 from entities.player import Player
 from entities.enemy import Enemy
+from entities.bullet import Bullet
 
 class Game:
     def __init__(self, width: int = WIDTH, height: int = HEIGHT, fps: int = FPS,
@@ -36,12 +37,14 @@ class Game:
         self.bullets = 0
         self.Contador = 0
         self.score = 0
+        self.count = 0  # contador para GAME OVER
         # Progreso de nivel y spawner (enemigos infinitos hasta cumplir objetivo)
-        self.target_kills = 20  # Kills necesarios para terminar el nivel
+        self.target_kills = 12  # Kills necesarios para terminar el nivel
         self.kills = 0
         self.max_enemies_on_screen = 6
         self.spawn_cooldown = 30
         self.spawn_counter = 0
+        self.enemy_speed = 1.0
 
         self.Font = pygame.font.Font(None, 28)
         # aliases
@@ -81,8 +84,19 @@ class Game:
         start_y = self.screen_height - 80
         # Instanciar jugador (Player) con velocidades en X/Y y salud inicial
         self.player = Player(start_x, start_y, x_speed=6, y_speed=6, health=100)
+        # Llenar arsenal de balas al inicio del juego
+        self.player.fired_bullets = []
+        self.player.bullets = []
+        for _ in range(self.player.max_amount_bullets):
+            img = self.player.bullet_img or pygame.Surface((8, 16), pygame.SRCALPHA)
+            if self.player.bullet_img is None:
+                img.fill((255, 255, 0))
+            b = Bullet(self.player.x, self.player.y, img, speed=self.player.bullet_speed)
+            self.player.bullets.append(b)
+        self.player.creation_cooldown_counter = 0
+        self.player.bullet_cooldown_counter = 0
         # Instanciar enemigos iniciales
-        self.enemies = Enemy(speed=1).create(3)
+        self.enemies = Enemy(speed=int(max(1, self.enemy_speed))).create(6)
         # Reproducir sonido inicial
         self.play_start_sound()
         # Iniciar música de fondo (si existe)
@@ -113,6 +127,14 @@ class Game:
             for e in self.enemies:
                 e.update()
 
+            # Si algún enemigo toca el fondo, perder vida y reiniciar
+            if self._enemy_reached_bottom():
+                self.lives -= 1
+                if self.lives <= 0:
+                    pass
+                else:
+                    self._restart_level()
+
             # Colisión jugador-enemigo -> perder vida y reiniciar nivel
             if self._player_hit_by_enemy():
                 self.lives -= 1
@@ -130,8 +152,11 @@ class Game:
 
             self.update_HUD()
 
-            # Verificar fin de nivel (kills alcanzados + pantalla limpia) o salida / game over
-            if self._check_level_complete() or self.over() or self.escape():
+            # Progresión de nivel (subir de nivel cuando cumples objetivo y limpias la pantalla)
+            self._progress_level()
+
+            # Verificar salida / game over
+            if self.over() or self.escape():
                 running = False
 
         pygame.quit()
@@ -261,7 +286,10 @@ class Game:
             return
         # Revisar cada bala contra cada enemigo (simple, pequeño número)
         remaining_enemies = []
+        level_target_reached = False
         for enemy in self.enemies:
+            if level_target_reached:
+                break  # ya alcanzamos objetivo, ignorar enemigos restantes
             hit = False
             for bullet in list(self.player.fired_bullets):
                 if bullet.collision(enemy):
@@ -270,29 +298,57 @@ class Game:
                         self.player.fired_bullets.remove(bullet)
                     hit = True
                     self.score += 100
-                    self.kills += 1
+                    if self.kills < self.target_kills:
+                        self.kills += 1
+                    # Si alcanzamos exactamente el objetivo, no obligar a eliminar el resto manualmente
+                    if self.kills >= self.target_kills:
+                        level_target_reached = True
                     break
             if not hit:
                 remaining_enemies.append(enemy)
-        self.enemies = remaining_enemies
+        # Si se alcanzó el objetivo, limpiar completamente la lista para avanzar de nivel sin kills extra
+        self.enemies = [] if level_target_reached else remaining_enemies
 
-    def _check_level_complete(self) -> bool:
-        if self.kills >= self.target_kills and not self.enemies:
-            # Mostrar mensaje breve y finalizar
-            frames = 0
-            msg = self.Font.render("LEVEL COMPLETE", True, (0, 255, 0))
-            while frames < self.FPS * 2:
-                self.clock.tick(self.FPS)
-                for event in pygame.event.get():
-                    if event.type == pygame.QUIT:
-                        return True
-                self.Window.fill((0, 0, 0))
-                self.Window.blit(msg, ((self.Screen_width - msg.get_width()) // 2,
-                                        (self.screen_height - msg.get_height()) // 2))
-                pygame.display.update()
-                frames += 1
-            return True
-        return False
+    def _progress_level(self) -> None:
+        """Si cumpliste objetivo (independiente de enemigos restantes), sube de nivel y crea nueva oleada."""
+        if self.kills < self.target_kills:
+            return
+        # Mensaje breve de nivel completado
+        frames = 0
+        msg = self.Font.render("LEVEL COMPLETE", True, (0, 255, 0))
+        while frames < self.FPS:  # ~1s
+            self.clock.tick(self.FPS)
+            for event in pygame.event.get():
+                if event.type == pygame.QUIT:
+                    return
+            self.Window.fill((0, 0, 0))
+            self.Window.blit(msg, ((self.Screen_width - msg.get_width()) // 2,
+                                    (self.screen_height - msg.get_height()) // 2))
+            pygame.display.update()
+            frames += 1
+        # Subir nivel y ajustar parámetros
+        self.level += 1
+        self.Nivel = self.level
+        self.enemy_speed *= 1.15
+        # Aumentar objetivo próximo nivel
+        self.target_kills = int(max(self.target_kills + 4, self.target_kills * 1.25))
+        self.kills = 0
+        # Aumentar arsenal de balas en +1 por nivel
+        if hasattr(self.player, "max_amount_bullets"):
+            self.player.max_amount_bullets += 1
+        # Refill de balas del jugador al máximo según el nuevo nivel
+        self.player.fired_bullets = []
+        self.player.bullets = []
+        for _ in range(self.player.max_amount_bullets):
+            img = self.player.bullet_img or pygame.Surface((8, 16), pygame.SRCALPHA)
+            if self.player.bullet_img is None:
+                img.fill((255, 255, 0))
+            b = Bullet(self.player.x, self.player.y, img, speed=self.player.bullet_speed)
+            self.player.bullets.append(b)
+
+        # Nueva oleada inicial
+        start_count = min(6 + self.level, 12)
+        self.enemies = Enemy(speed=int(max(1, round(self.enemy_speed)))).create(start_count)
     def _spawn_enemies(self) -> None:
         # Deja de spawnear solo si ya alcanzó los kills objetivos
         if self.kills >= self.target_kills:
@@ -302,9 +358,22 @@ class Game:
         if self.spawn_counter > 0:
             self.spawn_counter -= 1
             return
-        new_enemy = Enemy(speed=1).create(1)[0]
+        new_enemy = Enemy(speed=int(max(1, round(self.enemy_speed)))).create(1)[0]
         self.enemies.append(new_enemy)
         self.spawn_counter = self.spawn_cooldown
+
+    def _enemy_reached_bottom(self) -> bool:
+        """Retorna True si algún enemigo tocó el borde inferior; elimina el enemigo."""
+        hit = False
+        remaining = []
+        for e in self.enemies:
+            if e.rect.bottom >= self.screen_height:
+                hit = True
+                continue
+            remaining.append(e)
+        if hit:
+            self.enemies = remaining
+        return hit
 
     def _player_hit_by_enemy(self) -> bool:
         """Detecta si algún enemigo colisiona con el jugador."""
@@ -324,7 +393,7 @@ class Game:
     def _restart_level(self) -> None:
         """Reinicia el estado del nivel manteniendo score y vidas restantes."""
         self.kills = 0
-        self.enemies = Enemy(speed=1).create(3)
+        self.enemies = Enemy(speed=int(max(1, round(self.enemy_speed)))).create(6)
         self.spawn_counter = 0
         # Reposicionar jugador al centro inferior
         self.player.x = (self.Screen_width // 2) - (self.player.ship_img.get_width() // 2)

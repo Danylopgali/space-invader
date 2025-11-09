@@ -45,6 +45,9 @@ class Game:
         self.spawn_cooldown = 30
         self.spawn_counter = 0
         self.enemy_speed = 1.0
+        self.player_name = player_name
+        # Cargar top scores existentes (si el archivo está disponible)
+        self.top_scores = self.leer_registro()
 
         self.Font = pygame.font.Font(None, 28)
         # aliases
@@ -53,7 +56,6 @@ class Game:
         self.window = self.Window
         self.WIDTH = self.Screen_width
         self.HEIGTH = self.screen_height
-        self.player_name = player_name
 
         # bullet image for HUD: prefer images/ bullet_image.png then assets/images/bullet.png
         images_dir = os.path.join(PROJECT_ROOT, "images")
@@ -105,6 +107,11 @@ class Game:
         # Cargar background usando Drawing helper (reutiliza lógica existente)
         self._drawing = Drawing(self.Window)
         self.background = self._drawing.background
+        # Preparar umbral de récord del jugador para sonido de "ganar"
+        self._played_highscore_sound = False
+        self.player_prev_best = self._leer_puntaje_jugador(self.player_name)
+        # Flag para guardar puntaje solo una vez al finalizar
+        self._score_saved = False
 
     def run(self) -> None:
         running = True
@@ -171,6 +178,16 @@ class Game:
 
     def over(self) -> bool:
         if self.lives <= 0:
+            # Guardar puntaje del jugador una sola vez cuando termina la partida
+            if not self._score_saved and self.player_name:
+                try:
+                    self.guardar_puntaje(self.player_name, self.score)
+                    # refrescar top en memoria
+                    self.top_scores = self.leer_registro()
+                except Exception as e:
+                    print(f"[Scores] No se pudo guardar el puntaje: {e}")
+                finally:
+                    self._score_saved = True
             if not hasattr(self, "count") or self.count == 0:
                 self.count = 0
             while self.count < self.FPS * 3:
@@ -190,6 +207,148 @@ class Game:
 
     def reload_bullet(self, bullet: int) -> None:
         self.bullets = int(bullet)
+
+    # -------- Puntajes util ---------
+    def leer_registro(self, archivo: str = "scores.txt") -> list[tuple[str, int]]:
+        """Lee registros de puntajes y devuelve el top 5 ordenado por puntuación descendente.
+        Formato esperado por línea: nombre,puntaje
+        Ignora líneas vacías o formatos inválidos.
+        """
+        registros: list[tuple[str, int]] = []
+        try:
+            with open(archivo, 'r', encoding='utf-8') as f:
+                for linea in f:
+                    linea = linea.strip()
+                    if not linea:
+                        continue
+                    partes = linea.split(',')
+                    if len(partes) < 2:
+                        continue
+                    nombre = partes[0].strip()
+                    try:
+                        puntaje = int(partes[1])
+                    except ValueError:
+                        continue
+                    registros.append((nombre, puntaje))
+        except FileNotFoundError:
+            # Archivo inexistente en primer arranque
+            return []
+        except Exception as e:
+            print(f"[Scores] Error leyendo '{archivo}': {e}")
+        registros.sort(key=lambda t: t[1], reverse=True)
+        return registros[:5]
+
+    def _leer_puntaje_jugador(self, nombre: str, archivo: str = "scores.txt") -> int:
+        """Obtiene el puntaje previo guardado para un nombre (0 si no existe)."""
+        if not nombre:
+            return 0
+        try:
+            path = archivo if os.path.isabs(archivo) else os.path.join(PROJECT_ROOT, archivo)
+            with open(path, 'r', encoding='utf-8') as f:
+                for linea in f:
+                    linea = linea.strip()
+                    if not linea:
+                        continue
+                    partes = linea.split(',')
+                    if len(partes) < 2:
+                        continue
+                    if partes[0].strip().lower() == nombre.lower():
+                        try:
+                            return int(partes[1])
+                        except ValueError:
+                            return 0
+        except FileNotFoundError:
+            return 0
+        except Exception:
+            return 0
+        return 0
+
+    def play_win_sound(self) -> None:
+        if not pygame.mixer.get_init():
+            return
+        try:
+            # Cachear el sonido para no recargarlo
+            if not hasattr(self, '_win_sound') or self._win_sound is None:
+                candidates = [
+                    os.path.join(PROJECT_ROOT, 'assets', 'sounds', 'ganar.mp3'),
+                    r"C:\\Users\\danie\\Desktop\\escuela\\space_ivaders\\assets\\sounds\\ganar.mp3",
+                ]
+                chosen = next((p for p in candidates if os.path.exists(p)), None)
+                if not chosen:
+                    return
+                self._win_sound = pygame.mixer.Sound(chosen)
+            self._win_sound.play()
+        except Exception:
+            pass
+
+    def guardar_puntaje(self, nombre: str, puntaje: int, archivo: str = "scores.txt") -> None:
+        """Guarda/actualiza el puntaje del jugador en el archivo.
+        - Si el jugador existe, se guarda el mayor entre el previo y el nuevo.
+        - Si no existe, se agrega la nueva entrada.
+        """
+        if not nombre:
+            return
+        path = archivo if os.path.isabs(archivo) else os.path.join(PROJECT_ROOT, archivo)
+        registros: dict[str, int] = {}
+        # Leer existentes
+        try:
+            with open(path, 'r', encoding='utf-8') as f:
+                for linea in f:
+                    linea = linea.strip()
+                    if not linea:
+                        continue
+                    partes = linea.split(',')
+                    if len(partes) < 2:
+                        continue
+                    n = partes[0].strip()
+                    try:
+                        p = int(partes[1])
+                    except ValueError:
+                        continue
+                    registros[n] = max(registros.get(n, 0), p)
+        except FileNotFoundError:
+            # Crear carpeta si fuese necesario
+            try:
+                os.makedirs(os.path.dirname(path), exist_ok=True)
+            except Exception:
+                pass
+        # Actualizar o agregar
+        prev = registros.get(nombre, 0)
+        registros[nombre] = max(prev, puntaje)
+        # Escribir de vuelta ordenado desc
+        ordenados = sorted(registros.items(), key=lambda t: t[1], reverse=True)
+        with open(path, 'w', encoding='utf-8') as f:
+            for n, p in ordenados:
+                f.write(f"{n},{p}\n")
+
+    def leer_registro(self, archivo: str = "scores.txt") -> list[tuple[str, int]]:
+        """Lee registros de puntajes y devuelve el top 5 ordenado por puntuación descendente.
+        Formato esperado por línea: nombre,puntaje
+        Ignora líneas vacías o formatos inválidos.
+        """
+        registros: list[tuple[str, int]] = []
+        try:
+            with open(archivo, 'r', encoding='utf-8') as f:
+                for linea in f:
+                    linea = linea.strip()
+                    if not linea:
+                        continue
+                    partes = linea.split(',')
+                    if len(partes) < 2:
+                        continue
+                    nombre = partes[0].strip()
+                    try:
+                        puntaje = int(partes[1])
+                    except ValueError:
+                        continue
+                    registros.append((nombre, puntaje))
+        except FileNotFoundError:
+            # Archivo inexistente en primer arranque; retornamos lista vacía
+            return []
+        except Exception as e:
+            print(f"[Scores] Error leyendo '{archivo}': {e}")
+        registros.sort(key=lambda t: t[1], reverse=True)
+        return registros[:5]
 
     # -------- Audio util ---------
     def _ensure_start_wav(self, path: str) -> None:
@@ -299,6 +458,10 @@ class Game:
                         self.player.fired_bullets.remove(bullet)
                     hit = True
                     self.score += 100
+                    # Si supera su récord previo, reproducir sonido (una sola vez)
+                    if (not self._played_highscore_sound) and self.player_name and (self.score > self.player_prev_best):
+                        self.play_win_sound()
+                        self._played_highscore_sound = True
                     if self.kills < self.target_kills:
                         self.kills += 1
                     # Si alcanzamos exactamente el objetivo, no obligar a eliminar el resto manualmente
@@ -314,6 +477,8 @@ class Game:
         """Si cumpliste objetivo (independiente de enemigos restantes), sube de nivel y crea nueva oleada."""
         if self.kills < self.target_kills:
             return
+        # Sonido al ganar el nivel
+        self.play_win_sound()
         # Mensaje breve de nivel completado
         frames = 0
         msg = self.Font.render("LEVEL COMPLETE", True, (0, 255, 0))

@@ -102,8 +102,21 @@ class MenuPuntajes:
                         continue
                     puntajes.append((nombre, puntaje))
         except FileNotFoundError:
-            # No existe el archivo: retornar lista vacía (primer arranque)
-            return []
+            # Crear archivo con puntajes de ejemplo y devolverlos
+            ejemplo: List[Tuple[str, int]] = [
+                ("AAA", 5000),
+                ("BBB", 3500),
+                ("CCC", 2000),
+                ("DDD", 1500),
+                ("EEE", 1000),
+            ]
+            try:
+                with open(archivo, 'w', encoding='utf-8') as fw:
+                    for n, p in ejemplo:
+                        fw.write(f"{n},{p}\n")
+            except Exception:
+                pass
+            return ejemplo
         except Exception:
             # Cualquier otro error, ser resiliente y retornar lo que tengamos
             pass

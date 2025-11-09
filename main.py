@@ -1,6 +1,7 @@
 import pygame
 from game import Game
 from core.menu_principal import MenuPrincipal
+from core.menu_acerca_de import MenuAcercaDe
 
 
 def main():
@@ -11,6 +12,10 @@ def main():
             pygame.font.init()
         except Exception:
             pass
+
+    # Menú Acerca de (opcional al inicio)
+    acerca = MenuAcercaDe()
+    acerca.ejecutar()
 
     # Menú principal: retorna nombre si elige "Nuevo Juego"
     menu = MenuPrincipal()

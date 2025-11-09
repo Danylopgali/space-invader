@@ -14,7 +14,7 @@ from entities.bullet import Bullet
 
 class Game:
     def __init__(self, width: int = WIDTH, height: int = HEIGHT, fps: int = FPS,
-                 lives: int = 3, nivel: int = 1) -> None:
+                 lives: int = 3, nivel: int = 1, player_name: str | None = None) -> None:
         pygame.init()
         pygame.font.init()
         # Inicializar audio (ignorando errores si falla en WSL sin soporte)
@@ -53,6 +53,7 @@ class Game:
         self.window = self.Window
         self.WIDTH = self.Screen_width
         self.HEIGTH = self.screen_height
+        self.player_name = player_name
 
         # bullet image for HUD: prefer images/ bullet_image.png then assets/images/bullet.png
         images_dir = os.path.join(PROJECT_ROOT, "images")

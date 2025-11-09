@@ -1,0 +1,21 @@
+# User data / scores should not be versioned
+scores.txt
+puntajes.txt
+data/scores.txt
+data/puntajes.txt
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.pytest_cache/
+
+# Environments
+.venv/
+venv/
+ENV/
+
+# OS files
+.DS_Store
+Thumbs.db
